@@ -1,3 +1,4 @@
+import typing
 from copy import copy
 
 import matplotlib.pyplot as plt
@@ -5,24 +6,26 @@ import numpy as np
 from pydrake.all import System
 
 
-def plot_2d_phase_portrait(f, x1lim=(-1, 1), x2lim=(-1, 1), n=100j, **kwargs):
+def plot_2d_phase_portrait(
+    f: typing.Union[System, typing.Callable[float, float]],
+    x1lim: typing.Tuple[float] = (-1, 1),
+    x2lim: typing.Tuple[float] = (-1, 1),
+    n: complex = 100j,
+    **kwargs
+):
     """
     Plots the phase portrait for a 2D dynamical system.
 
-    Parameters
-    ----------
-    f : function
-        Callable vectorized function which implements the rhs of the
-        state-space dynamics xdot = f(x), with x 2D array.
-    x1lim : tuple
-        Minimum and maximum values (floats) for the horizontal axis of the
-        plot.
-    x2lim : tuple
-        Minimum and maximum values (floats) for the vertical axis of the
-        plot.
-    n : complex
-        Purely imaginary number with imaginary part equal to the number of knot
-        points on each axis of the plot.
+    Args:
+        f : Callable vectorized function which implements the rhs of the
+            state-space dynamics xdot = f(x), with x 2D array.
+        x1lim : Minimum and maximum values (floats) for the horizontal axis of the
+                plot.
+        x2lim : Minimum and maximum values (floats) for the vertical axis of the
+                plot.
+        n : Purely imaginary number with imaginary part equal to the number of knot
+            points on each axis of the plot.
+        kwargs: Additional arguments to pass to matplotlib.pyplot.streamplot.
     """
     # grid state space, careful here x2 before x1
     X1, X2 = np.mgrid[x1lim[0] : x1lim[1] : n, x2lim[0] : x2lim[1] : n]
@@ -43,9 +46,7 @@ def plot_2d_phase_portrait(f, x1lim=(-1, 1), x2lim=(-1, 1), n=100j, **kwargs):
     color = np.sqrt(X1d**2 + X2d**2)
 
     # phase portrait (annoying input format of streamplot)
-    strm = plt.streamplot(
-        X1.T[0], X2[0], X1d.T, X2d.T, color=color.T, **kwargs
-    )
+    strm = plt.streamplot(X1.T[0], X2[0], X1d.T, X2d.T, color=color.T, **kwargs)
 
     # colorbar on the right that measures the magnitude of xdot
     plt.gcf().colorbar(strm.lines, label=r"$|\dot\mathbf{x}|$")

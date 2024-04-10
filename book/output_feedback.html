@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+
+<html>
+
+  <head>
+    <title>Ch. 15 - 
+Output Feedback (aka Pixels-to-Torques)</title>
+    <meta name="Ch. 15 - 
+Output Feedback (aka Pixels-to-Torques)" content="text/html; charset=utf-8;" />
+    <link rel="canonical" href="http://underactuated.mit.edu/output_feedback.html" />
+
+    <script src="https://hypothes.is/embed.js" async></script>
+    <script type="text/javascript" src="chapters.js"></script>
+    <script type="text/javascript" src="htmlbook/book.js"></script>
+
+    <script src="htmlbook/mathjax-config.js" defer></script>
+    <script type="text/javascript" id="MathJax-script" defer
+      src="htmlbook/MathJax/es5/tex-chtml.js">
+    </script>
+    <script>window.MathJax || document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" defer><\/script>')</script>
+
+    <link rel="stylesheet" href="htmlbook/highlight/styles/default.css">
+    <script src="htmlbook/highlight/highlight.pack.js"></script> <!-- http://highlightjs.readthedocs.io/en/latest/css-classes-reference.html#language-names-and-aliases -->
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <link rel="stylesheet" type="text/css" href="htmlbook/book.css" />
+  </head>
+
+<body onload="loadChapter('underactuated');">
+
+<div data-type="titlepage">
+  <header>
+    <h1><a href="index.html" style="text-decoration:none;">Underactuated Robotics</a></h1>
+    <p data-type="subtitle">Algorithms for Walking, Running, Swimming, Flying, and Manipulation</p>
+    <p style="font-size: 18px;"><a href="http://people.csail.mit.edu/russt/">Russ Tedrake</a></p>
+    <p style="font-size: 14px; text-align: right;">
+      &copy; Russ Tedrake, 2024<br/>
+      Last modified <span id="last_modified"></span>.</br>
+      <script>
+      var d = new Date(document.lastModified);
+      document.getElementById("last_modified").innerHTML = d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate();</script>
+      <a href="misc.html">How to cite these notes, use annotations, and give feedback.</a><br/>
+    </p>
+  </header>
+</div>
+
+<p><b>Note:</b> These are working notes used for <a
+href="https://underactuated.csail.mit.edu/Spring2024/">a course being taught
+at MIT</a>. They will be updated throughout the Spring 2024 semester.  <a
+href="https://www.youtube.com/playlist?list=PLkx8KyIQkMfU5szP43GlE_S1QGSPQfL9s">Lecture videos are available on YouTube</a>.</p>
+
+<table style="width:100%;"><tr style="width:100%">
+  <td style="width:33%;text-align:left;"><a class="previous_chapter" href=robust.html>Previous Chapter</a></td>
+  <td style="width:33%;text-align:center;"><a href=index.html>Table of contents</a></td>
+  <td style="width:33%;text-align:right;"><a class="next_chapter" href=limit_cycles.html>Next Chapter</a></td>
+</tr></table>
+
+<script type="text/javascript">document.write(notebook_header('output_feedback'))
+</script>
+<!-- EVERYTHING ABOVE THIS LINE IS OVERWRITTEN BY THE INSTALL SCRIPT -->
+<chapter style="counter-reset: chapter 14"><h1>
+Output Feedback (aka Pixels-to-Torques)</h1>
+
+  <p>In this chapter we will finally start considering systems of the form:
+  \begin{gather*} \bx[n+1] = {\bf f}(\bx[n], \bu[n], \bw[n]) \\ \by[n] =
+  {\bf g}(\bx[n], \bu[n], \bv[n]),\end{gather*} where most of these symbols
+  have been <a href="robust.html">described before</a>, but we have now added
+  $\by[n]$ as the output of the system, and $\bv[n]$ which is representing
+  "measurement noise" and is typically the output of a random process.  In
+  other words, we'll finally start addressing the fact that we have to make
+  decisions based on sensor measurements -- most of our discussions until now
+  have tacitly assumed that we have access to the true state of the system for
+  use in our feedback controllers (and that's already been a hard problem).
+  </p>
+
+  <p>In some cases, we will see that the assumption of "full-state feedback" is
+  not so bad -- we do have good tools for state estimation from raw sensor data.
+  But even our best state estimation algorithms do add some dynamics to the
+  system in order to filter out noisy measurements; if the time constants of
+  these filters is near the time constant of our dynamics, then it becomes
+  important that we include the dynamics of the estimator in our analysis of the
+  closed-loop system.</p>
+
+  <p>In other cases, it's entirely too optimistic to design a controller
+  assuming that we will have an estimate of the full state of the system.  Some
+  state variables might be completely unobservable, others might require
+  specific "information-gathering" actions on the part of the controller.</p>
+
+  <p>For me, the problem of robot manipulation is one important application
+  domain where more flexible approaches to output feedback become critically
+  important. Imagine you are trying to design a controller for a robot that
+  needs to button the buttons on your shirt.  Our current tools would require
+  us to first estimate the state of the shirt (how many degrees of freedom does
+  my shirt have?); but certainly the full state of my shirt should not be
+  required to button a single button.  Or if you want to program a robot to
+  make a salad -- what's the state of the salad?  Do I really need to know the
+  positions and velocities of every piece of lettuce in order to be successful?
+  These questions are (finally) getting a lot of attention in the research
+  community these days, under the umbrella of "learning state representations".
+  But what does it mean to be a good state representation?  There are a number
+  of simple lessons from output feedback in control that can shed light on this
+  fundamental question.
+  </p>
+
+  <section><h1>Background</h1>
+    <subsection><h1>The classical perspective</h1>
+
+      <p>To some extent, this idea of calling out "output feedback" as an
+      advanced topic is a relatively new problem.  Before state-space and
+      optimization-based approaches to control ushered in "modern control", we
+      had "classical control".  Classical control focused predominantly (though
+      not exclusively) on linear time-invariant (LTI) systems, and made very
+      heavy use of frequency-domain analysis (e.g. via the Fourier
+      Transform/Laplace Transform).  There are many excellent books on the
+      subject; <elib>Hespanha09+Astrom10</elib> are nice examples of modern
+      treatments that start with state-space representations but also treat the
+      frequency-domain perspective. "Pole placement" and "loop shaping" are some
+      of the tools of this trade.</p>
+
+      <p>What's important for us to acknowledge here is that in classical
+      control, basically everything was built around the idea of output
+      feedback.  The fundamental concept is the transfer function of a system,
+      which is a input-to-output map (in frequency domain) that can completely
+      characterize an LTI system.  Core concepts like pole placement and loop
+      shaping were fundamentally addressing the challenge of output feedback
+      that we are discussing here.  Sometimes I feel that, despite all of the
+      things we've gained with modern, optimization-based control, I worry that
+      we've lost something in terms of considering rich characterizations of
+      closed-loop performance (rise time, dwell time, overshoot, ...) and
+      perhaps even in practical robustness of our systems to unmodeled
+      errors.</p>
+
+      <todo>Add a few examples here that capture it.</todo>
+
+    </subsection>
+
+    <subsection><h1>From pixels to torques</h1>
+
+      <p>Just like some of our oldest approaches to control were fundamentally
+      solving an output feedback problem, some of our newest approaches to
+      control are doing it, too. Deep learning has revolutionized computer
+      vision, and "deep imitation learning" and "deep reinforcement learning"
+      have been a recent source of many impressive demonstrations of control
+      systems that can operate directly from pixels (e.g. consuming the output
+      of a deep perception system), without explicitly representing nor
+      estimating the full state of the system.  Unfortunately, the success or
+      failure of these methods are not yet well understood, and they often
+      require a great deal of artisanal tuning and an embarrassing (sometimes
+      prohibitive) amount of computation.</p>
+
+      <p>The synthesis of ideas between machine learning (both theoretical and
+      applied) and control theory is one of the most exciting and productive
+      frontiers for research today.  I am highly optimistic that we will be
+      able to uncover the underlying principles and help transition this
+      budding field into a technology. I hope that summarizing some of the key
+      lessons from control here can help.</p>
+    </subsection>
+
+  </section>
+
+  <section><h1>Static Output Feedback</h1>
+  
+    <p>One of the extremely important almost unstated lessons from dynamic
+    programming with additive costs and the Bellman equation is that the
+    optimal policy can <i>always</i> be represented as a function $\bu^*
+    = \pi^*(\bx).$ So far in these notes, we've assumed that the controller has
+    direct access to the true state, $\bx$. In this chapter, we are finally
+    removing that assumption. Now the controller only has direct access to the
+    potentially noisy observations $\by$.</p>
+
+    <p>So the natural first question to ask might be, what happens if we write
+    our policies now as a function, $\bu = \pi(\by)?$  This is known as
+    "static" output feedback, in contrast to "dynamic" output feedback where
+    the controller is not a static function, but is itself another input-output
+    dynamical system. Unfortunately, in the general case it is <i>not</i> the
+    case that optimal policies can be perfectly represented with static output
+    feedback.  But one can still try to solve an optimal control problem where
+    we restrict our search to static policies; our goal will be to find the
+    best controller in this class to minimize the cost.</p>
+
+    <subsection><h1>A hardness result</h1>
+    
+      <p>We've already seen <a
+      href="policy_search.html#static_output_feedback">an example</a> of a very
+      simple linear control problem where the set of stabilizing feedback gains
+      formed a disconnected set -- which is suggestive that it could be a
+      difficult problem for optimization.  For some other problems in control,
+      we've been able to find a convex reparametrization.</p>
+      
+      <p>Unfortunately, <elib>Blondel97</elib> showed that the question of
+      whether a stabilizing static output feedback $\bu = -\bK \by$ even exists
+      for a given system of the form $$\dot\bx = \bA\bx + \bB\bu,\quad \by =
+      \bC \bx,$$ is NP-hard. Many of the strongest results from $H_2$ and
+      $H_\infty$ design, for instance, are limited to dynamic controllers that
+      can effectively reconstruct the entire state.</p>
+      
+      <p>Just because this problem is NP-hard doesn't mean we can't find good
+      controllers in practice. Some of the recent results from reinforcement
+      learning have reminded us of this. We should not expect an efficient
+      globally optimal algorithm that works for every problem instance; but we
+      should absolutely keep working on the problem. Perhaps the class of
+      problems that our robots will actually encounter in the real world is a
+      easier than this general case (the standard examples of bad cases in
+      linear systems, e.g. with interleaved poles and zeros, do feel a bit
+      contrived and unlikely to occur in practice).</p>
+
+    </subsection>
+
+    <subsection><h1>Via policy search</h1>
+
+      <p>Searching for the best controller within a parametric class of
+      policies is generally referred to as <a href="policy_search.html">policy
+      search</a>.  If we do policy search on a class of static output feedback
+      policies, how well does it perform?  Of course, the answer depends on the
+      particular governing equations (for instance, $\by = \bx$ is a perfectly
+      reasonable output, and in this case the policy can be optimal).  But we
+      also have very simple <a
+      href="policy_search.html#static_output_feedback">counter-examples</a>
+      which demonstrate that the set of even stabilizing static output feedback
+      controllers can form a disconnected set.</p>
+
+      <todo>Jack had another nice example in his poly search lecture:
+      https://youtu.be/JhjROrZxBhM?t=1099 and "what goes wrong in output
+      feedback?" https://youtu.be/JhjROrZxBhM?t=5066</todo>
+
+      <todo>Bilinear alternations with SOS</todo>
+    
+    </subsection>
+  
+  </section>
+  
+  <section><h1>Observer-based Feedback</h1>
+
+    <p>Since we know so much about designing full-state feedback controllers,
+    one of the most natural (and dominant) approaches to control is to first <a
+    href="state_estimation.html">design an observer</a> (aka "state
+    estimator"), and then to use state feedback. Famously, this approach is
+    actually optimal for the quadratic regular objective on linear-Gaussian
+    systems (LQG) -- this is known as the "separation principle". But it is
+    certainly not optimal in general!</p>
+
+    <subsection><h1>Luenberger Observer</h1></subsection>
+
+    <subsection><h1 id="lqg">Linear Quadratic Regulator w/ Gaussian Noise
+    (LQG)</h1></subsection>
+
+    <subsection><h1>Partially-observable Markov Decision Processes</h1>
+      <todo>Defer most of the discussion to the state estimation
+        chapter</todo>
+    
+    </subsection>
+
+    <subsection><h1>Trajectory optimization with Iterative LQG</h1></subsection>
+    <todo>Note: I also have a <a href="belief.html">draft chapter on planning
+    under uncertainty</a></todo>
+
+  </section>
+
+  <section><h1 id="disturbance-based">Disturbance-based feedback</h1>
+  
+    <p>There is an interesting alternative to trying to observe/estimate the
+    true state of the system, which can in some cases lead to convex
+    formulations of the output-feedback objective. Rather than estimate the
+    state (or belief state), one can try to estimate instead the
+    <i>disturbances</i> which cause the state to deviate from the nominal
+    trajectory, and design a feedback controller as a function of the
+    disturbance. This is an old but important idea which was made famous first
+    as the <a
+    href="https://en.wikipedia.org/wiki/Youla%E2%80%93Kucera_parametrization">Youla
+    parameterization</a> (alternatively "Q-parameterization"). In the time
+    domain this typically leads to controllers which are "unrolled in time" and
+    depend on a potentially infinite history of disturbances; common practice
+    it to approximate these with a finite-impulse response (FIR) truncation.
+    One could imagine extracting a state-space realization of these FIR
+    responses using the techniques from <a href="sysid.html#linear">linear
+    system identification</a> <elib>Anderson17</elib>.</p>
+
+    <p>We can understand the essence of this idea with a simple extension of
+    the <a href="lqr.html#sls">LQR with least-squares derivation</a>... (it's a
+    work in progress!)</p>
+    
+    <p>Given the state space equations: \begin{gather*} \bx[n+1] = \bA\bx[n] +
+    \bB\bu[n] + \bw[n],\end{gather*} Consider parameterizing an output feedback
+    policy of the form $$\bu[n] = \bK_0[n] \bx_0 +
+    \sum_{i=1}^{n-1}\bK_i[n]\bw[n-i],$$ then the closed-loop state is convex in
+    the control parameters, $\bK$: \begin{align*}\bx[n] =& \left( {\bf A}^n +
+    \sum_{i=0}^{n-1}{\bf A}^{n-i-1}{\bf B}{\bf K}_0[i] \right) \bx_0 +
+    \sum_{j=0}^{n-1} \sum_{i=0}^{n-1}{\bf A}^{n-i-1}{\bf B}{\bf K}_{j}[i]
+    \bw[i-j],\end{align*} and therefore objectives that are convex in $\bx$ and
+    $\bu$ (like LQR) are also convex in $\bK$.  Moreover, we can calculate
+    $\bw[n]$ by the time that it is needed given our observations of $\bx[n+1],
+    \bx[n],$ and knowledge of $\bu[n].$</p>
+
+    <p>We can extend this to output disturbance-based feedback: \begin{gather*}
+    \bx[n+1] = \bA\bx[n] + \bB\bu[n] + \bw[n],\\ \by[n] = \bC\bx[n] + \bv[n],
+    \end{gather*} by parameterizing an output feedback policy of the form
+    $$\bu[n] = \bK_0[n] \by[0] + \sum_{i=1}^{n-1}\bK_i[n]{\bf e}[n-i],$$ where ${\bf e}[n] = ...$ <elib>Sadraddini20</elib>.</p>
+
+    <subsection><h1>System-Level Synthesis</h1></subsection>
+  
+  </section>
+
+  <section><h1>Optimizing dynamic policies</h1>
+  
+    <todo>State-space models.  ARX Models.</todo>
+
+    <subsection>
+      <h1>Convex reparameterizations of $H_2$, $H_\infty$, and LQG</h1>
+
+      <p>DGKF (solving two Riccati equations)<elib>Doyle88</elib></p>
+
+      <p>Scherer's convex reparameterizations of LQG<elib
+      part="&sect;4.2">Scherer15</elib>.
+      </p>
+
+    </subsection>
+
+    <subsection><h1>Policy gradient for LQG</h1>
+    
+    </subsection>
+
+    <subsection><h1>Sums-of-squares alternations</h1>
+
+      <p>Coming soon.  See, for instance, <elib>Chou23</elib>.</p>
+    
+    </subsection>
+
+    <subsection><h1>Teacher-student learning</h1>
+
+      <todo>as seen in Marco Hutter, Pulkit, ...</todo>
+
+    </subsection>
+    
+        
+  </section>
+
+  <todo>Task-relevant variables / learning state representations (reference "task-relevant models" section of the sysid notes.</todo>
+
+  <section><h1>Feedback from pixels</h1>
+  
+    <p>In my opinion, one of the most important advances in control in the last
+    decade has been the introduction of high-rate feedback from cameras. This
+    advance was enabled by the revolution in computer vision that came with
+    deep learning. Especially in the domain of robotic manipulation, the value
+    of this feedback is undeniable. Unfortunately, these sensors break many of
+    the synthesis tools that we've discussed in the notes -- not only are they
+    very high dimensional, but the space of RGB images is horrible and
+    non-smooth. As of this writing, conventional wisdom is that model-based
+    control does not have a lot to offer to this problem -- to design control
+    from cameras, we are often limited to either imitation learning or
+    black-box reinforcement learning. (I personally think that we have <a
+    href="https://en.wikipedia.org/wiki/Don%27t_throw_the_baby_out_with_the_bathwater">thrown
+    the baby out with the bathwater</a>, and consider a highly important
+    research area to close this gap.)</p>
+  
+    <subsection><h1>Visuomotor policies</h1>
+    
+      <p>Visuomotor policies.  <todo>Sergey's original paper; Pete/Lucas paper...</todo></p>
+
+      <p>Diffusion policies <elib>Chi23</elib>. Transformer parameterizations
+      <elib>Zhao23</elib>.</p>
+    
+    </subsection>
+
+  </section>
+
+</chapter>
+<!-- EVERYTHING BELOW THIS LINE IS OVERWRITTEN BY THE INSTALL SCRIPT -->
+
+<div id="references"><section><h1>References</h1>
+<ol>
+
+<li id=Hespanha09>
+<span class="author">Joao P. Hespanha</span>, 
+<span class="title">"Linear Systems Theory"</span>, Princeton Press
+, <span class="year">2009</span>.
+
+</li><br>
+<li id=Astrom10>
+<span class="author">Karl Johan {\AA}str{\"o}m and Richard M Murray</span>, 
+<span class="title">"Feedback systems: an introduction for scientists and engineers"</span>, Princeton university press
+, <span class="year">2010</span>.
+
+</li><br>
+<li id=Blondel97>
+<span class="author">Vincent Blondel and John N Tsitsiklis</span>, 
+<span class="title">"{NP}-hardness of some linear control design problems"</span>, 
+<span class="publisher">SIAM journal on control and optimization</span>, vol. 35, no. 6, pp. 2118--2127, <span class="year">1997</span>.
+
+</li><br>
+<li id=Anderson17>
+<span class="author">James Anderson and Nikolai Matni</span>, 
+<span class="title">"Structured state space realizations for SLS distributed controllers"</span>, 
+<span class="publisher">2017 55th Annual Allerton Conference on Communication, Control, and Computing (Allerton)</span> , pp. 982-987, <span class="year">2017</span>.
+
+</li><br>
+<li id=Sadraddini20>
+<span class="author">Sadra Sadraddini and Russ Tedrake</span>, 
+<span class="title">"Robust Output Feedback Control with Guaranteed Constraint Satisfaction"</span>, 
+<span class="publisher">In the Proceedings of 23rd ACM International Conference on Hybrid Systems: Computation and Control</span> , pp. 12, April, <span class="year">2020</span>.
+[&nbsp;<a href="http://groups.csail.mit.edu/robotics-center/public_papers/Sadraddini20.pdf">link</a>&nbsp;]
+
+</li><br>
+<li id=Doyle88>
+<span class="author">John Doyle and Keith Glover and Pramod Khargonekar and Bruce Francis</span>, 
+<span class="title">"State-space solutions to standard H 2 and H&#8734; control problems"</span>, 
+<span class="publisher">1988 American Control Conference</span> , pp. 1691--1696, <span class="year">1988</span>.
+
+</li><br>
+<li id=Scherer15>
+<span class="author">Carsten Scherer and Siep Weiland</span>, 
+<span class="title">"Linear {Matrix} {Inequalities} in {Control}"</span>, Online Draft
+, pp. 293, <span class="year">2015</span>.
+
+</li><br>
+<li id=Chou23>
+<span class="author">Glen Chou and Russ Tedrake</span>, 
+<span class="title">"Synthesizing Stable Reduced-Order Visuomotor Policies for Nonlinear Systems via Sums-of-Squares Optimization"</span>, 
+<span class="publisher">Under review</span> , <span class="year">2023</span>.
+[&nbsp;<a href="http://groups.csail.mit.edu/robotics-center/public_papers/Chou23.pdf">link</a>&nbsp;]
+
+</li><br>
+<li id=Chi23>
+<span class="author">Cheng Chi and Siyuan Feng and Yilun Du and Zhenjia Xu and Eric Cousineau and Benjamin Burchfiel and Shuran Song</span>, 
+<span class="title">"Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"</span>, 
+<span class="publisher">Proceedings of Robotics: Science and Systems</span> , <span class="year">2023</span>.
+
+</li><br>
+<li id=Zhao23>
+<span class="author">Tony Z Zhao and Vikash Kumar and Sergey Levine and Chelsea Finn</span>, 
+<span class="title">"Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"</span>, 
+<span class="publisher">arXiv preprint arXiv:2304.13705</span>, <span class="year">2023</span>.
+
+</li><br>
+</ol>
+</section><p/>
+</div>
+
+<table style="width:100%;"><tr style="width:100%">
+  <td style="width:33%;text-align:left;"><a class="previous_chapter" href=robust.html>Previous Chapter</a></td>
+  <td style="width:33%;text-align:center;"><a href=index.html>Table of contents</a></td>
+  <td style="width:33%;text-align:right;"><a class="next_chapter" href=limit_cycles.html>Next Chapter</a></td>
+</tr></table>
+
+<div id="footer">
+  <hr>
+  <table style="width:100%;">
+    <tr><td><a href="https://accessibility.mit.edu/">Accessibility</a></td><td style="text-align:right">&copy; Russ
+      Tedrake, 2024</td></tr>
+  </table>
+</div>
+
+
+</body>
+</html>

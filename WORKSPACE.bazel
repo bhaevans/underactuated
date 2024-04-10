@@ -1,18 +1,31 @@
 # -*- mode: python -*-
 # vi: set ft=python :
 
-# Copyright 2023 Massachusetts Institute of Technology.
+# Copyright 2024 Massachusetts Institute of Technology.
 # Licensed under the BSD 3-Clause License. See LICENSE.TXT for details.
 
 workspace(name = "underactuated")
 
 load(
-    "//htmlbook/tools:repositories.bzl",
+    "//book/htmlbook/tools:repositories.bzl",
     "rt_dependencies",
     "rt_toolchains",
 )
 
 rt_dependencies()
+
+
+load("@rules_python//python:repositories.bzl", "py_repositories")
+
+py_repositories()
+
+load(
+    "@rules_python//python/private:internal_config_repo.bzl",
+    "internal_config_repo",
+)
+internal_config_repo(
+    name = "rules_python_internal",
+)
 
 rt_toolchains()
 
@@ -20,18 +33,24 @@ load("@bazel_skylib//lib:versions.bzl", "versions")
 
 versions.check("2.0.0")
 
-load("@rules_python//python:pip.bzl", "pip_install")
+load("@rules_python//python:pip.bzl", "pip_parse")
 
-pip_install(
-    name = "pip",
-    requirements = "//:requirements-bazel.txt",
+pip_parse(
+    name = "pip_deps",
+    requirements_darwin = "//:requirements-bazel-mac.txt",
+    requirements_linux = "//:requirements-bazel-linux.txt",
+    requirements_lock = "//:requirements-bazel.txt",
 )
 
-load("//htmlbook/tools/buildifier:repositories.bzl", "buildifier_dependencies")
+load("@pip_deps//:requirements.bzl", "install_deps")
+
+install_deps()
+
+load("//book/htmlbook/tools/buildifier:repositories.bzl", "buildifier_dependencies")
 
 buildifier_dependencies()
 
-load("//htmlbook/tools/tidy:repositories.bzl", "tidy_dependencies")
+load("//book/htmlbook/tools/tidy:repositories.bzl", "tidy_dependencies")
 
 tidy_dependencies()
 

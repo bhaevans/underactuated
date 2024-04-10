@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+
+<html>
+
+  <head>
+    <title>Ch. DRAFT - Imitation Learning</title>
+    <meta name="Ch. DRAFT - Imitation Learning" content="text/html; charset=utf-8;" />
+    <link rel="canonical" href="http://underactuated.mit.edu/imitation.html" />
+
+    <script src="https://hypothes.is/embed.js" async></script>
+    <script type="text/javascript" src="chapters.js"></script>
+    <script type="text/javascript" src="htmlbook/book.js"></script>
+
+    <script src="htmlbook/mathjax-config.js" defer></script>
+    <script type="text/javascript" id="MathJax-script" defer
+      src="htmlbook/MathJax/es5/tex-chtml.js">
+    </script>
+    <script>window.MathJax || document.write('<script type="text/javascript" src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" defer><\/script>')</script>
+
+    <link rel="stylesheet" href="htmlbook/highlight/styles/default.css">
+    <script src="htmlbook/highlight/highlight.pack.js"></script> <!-- http://highlightjs.readthedocs.io/en/latest/css-classes-reference.html#language-names-and-aliases -->
+    <script>hljs.initHighlightingOnLoad();</script>
+
+    <link rel="stylesheet" type="text/css" href="htmlbook/book.css" />
+  </head>
+
+<body onload="loadChapter('underactuated');">
+
+<div data-type="titlepage">
+  <header>
+    <h1><a href="index.html" style="text-decoration:none;">Underactuated Robotics</a></h1>
+    <p data-type="subtitle">Algorithms for Walking, Running, Swimming, Flying, and Manipulation</p>
+    <p style="font-size: 18px;"><a href="http://people.csail.mit.edu/russt/">Russ Tedrake</a></p>
+    <p style="font-size: 14px; text-align: right;">
+      &copy; Russ Tedrake, 2024<br/>
+      Last modified <span id="last_modified"></span>.</br>
+      <script>
+      var d = new Date(document.lastModified);
+      document.getElementById("last_modified").innerHTML = d.getFullYear() + "-" + (d.getMonth()+1) + "-" + d.getDate();</script>
+      <a href="misc.html">How to cite these notes, use annotations, and give feedback.</a><br/>
+    </p>
+  </header>
+</div>
+
+<p><b>Note:</b> These are working notes used for <a
+href="https://underactuated.csail.mit.edu/Spring2024/">a course being taught
+at MIT</a>. They will be updated throughout the Spring 2024 semester.  <a
+href="https://www.youtube.com/playlist?list=PLkx8KyIQkMfU5szP43GlE_S1QGSPQfL9s">Lecture videos are available on YouTube</a>.</p>
+
+<table style="width:100%;"><tr style="width:100%">
+  <td style="width:33%;text-align:left;"><a class="previous_chapter"></a></td>
+  <td style="width:33%;text-align:center;"><a href=index.html>Table of contents</a></td>
+  <td style="width:33%;text-align:right;"><a class="next_chapter"></a></td>
+</tr></table>
+
+<script type="text/javascript">document.write(notebook_header('imitation'))
+</script>
+<!-- EVERYTHING ABOVE THIS LINE IS OVERWRITTEN BY THE INSTALL SCRIPT -->
+<chapter style="counter-reset: chapter 100"><h1>Imitation Learning</h1>
+
+  <p>Two dominant approaches to imitation learning are <i>behavioral cloning</i> and <i>inverse reinforcement learning</i>...
+  </p>
+
+  <section><h1>Diffusion Policy</h1>
+  
+    <p>One particularly successful form of behavior cloning for visuomotor
+    policies with continuous action spaces is the <a
+    href="https://diffusion-policy.cs.columbia.edu/">Diffusion Policy</a>
+    <elib>Chi23</elib>. The dexterous manipulation team at TRI had been working
+    on behavior cloning for some time, but the Diffusion Policy (which started
+    as a summer internship project!) architecture has allowed us to very
+    reliably train <a
+    href="https://www.youtube.com/watch?v=w-CGSQAO5-Q">incredibly dexterous
+    tasks</a> and really start to scale up our ambitions for manipulation.</p>
+
+    <subsection><h1>Denoising Diffusion models</h1>
+    
+      <p>"Denoising Diffusion" models are an approach to generative AI, made
+      famous by their ability to generate high-resolution photorealistic
+      images. Inspired by the "manifold hypothesis" (e.g. the idea that
+      realistic images live on a low-dimensional manifold in pixel space), the
+      intuition behind denoising diffusion is that we train a model by adding
+      noise to samples drawn from the data distribution, then learn to predict
+      the noise from the noisy images, in order to "denoise" random images back
+      on to the manifold. While image generation made these models famous, they
+      have proven to be highly capable in generating samples from a wide
+      variety of high-dimension continuous distributions, even distributions
+      that are conditioned on high-dimensional inputs.</p>
+      
+      <p>Let's consider samples $\bu \in \Re^m$ drawn from a training dataset
+      $\mathcal{D}.$ Diffusion models are trained to estimate a noise vector
+      ${\bf \epsilon} \in \Re^m$ to minimize the loss function $$\ell(\theta) =
+      \mathbb{E}_{\bu, {\bf \epsilon}, \sigma} || {\bf f}_\theta(\bu + \sigma
+      {\bf \epsilon}, \sigma ) - {\bf \epsilon} ||^2,$$ where $\theta$ is the
+      parameter vector, and $f_\theta$ is typically some high-capacity neural
+      network. In practice, training is done by randomly sampling $\bu$ from
+      $\mathcal{D}$, ${\bf \epsilon}$ from $\mathcal{N}({\bf 0}_m, {\bf I}_{m
+      \times m})$, and $\sigma$ from a uniform distribution over a positive set
+      of numbers denoted as $\{\sigma_k\}_{k=0}^K,$ where we have $\sigma_k >
+      \sigma_{k-1}.$</p>
+
+      <p>To sample a new output from the model, the denoising diffusion
+      implicit models (DDIM) sampler <elib>Song20</elib> takes multiple steps:
+      $$\bu_{k-1} = \bu_k + (\sigma_{k-1} - \sigma_k)f_\theta(\bu_k,
+      \sigma_k).$$ This specific parameterization of the update (and my
+      preferred notation more generally) comes from
+      <elib>Permenter23</elib>.</p>
+      
+      <p>Diffusion models have a slightly convoluted history. The term
+      "diffusion" came from a paper <elib>Sohl-Dickstein15</elib>
+      which used an analogy from thermodynamics to use a prescribed diffusion
+      process to slowly transform data into random noise, and then learned to
+      reverse this procedure by training an inverse diffusion. Well before
+      that, a series of work starting with <elib>Hyvarinen05</elib> studied the
+      problem of learning the score function (the gradient of the log
+      probability of a distribution) of a data distribution, and
+      <elib>Vincent11</elib> made a connection to denoising autoencoders. 
+      <elib>Song19</elib> put all of this together beautifully and combined it
+      with deep learning to propose denoising diffusion as a generative
+      modeling techinque. They learned a single network that was conditioned on
+      the noise level. This was followed quickly by <elib>Ho20</elib>
+      which introduced denoise diffusion probabilistic models (DDPM) using an
+      even simpler update and showed results competitive with other leading
+      generative modeling techniques leading to <elib>Song20</elib> giving us
+      the DDIM update above. <elib>Permenter23</elib> gives a deterministic
+      interpretation as learning the distance function from the data manifold,
+      and sampling as performing approximate gradient descent on this
+      function.</p>
+        
+      <todo>Examples! Something like Figure 1 from Sohl-Dickstein15 would be
+      good.</todo>
+
+      <p>It is straight-forward to condition the generative model on an
+      exogeneous input, by simply adding an additional signal, $\by$, to the
+      denoiser: $f_\theta(\bu, \sigma, \by).$ </p>
+
+    </subsection>
+
+    <subsection><h1>Diffusion Policy</h1>
+
+      <p>Behavior cloning is perhaps the simplest form of imitation learning --
+      it simply attempts learn a policy using supervised learning to match
+      expert demonstrations. While it is tempting to learn deterministic
+      output-feedback policies (maps from history of observations to actions),
+      one quickly finds that human demonstrations are typically not unique.
+      Perhaps this is not surprising, as we know that optimal feedback policies
+      in general are not unique! To address this non-uniqueness /
+      multi-modality in the human demonstrations, it's well understood that
+      behavior cloning benefits from learning a conditional
+      <i>distribution</i> over actions.</p>
+      
+      <p>Diffusion Policy is the natural application of (conditional) denoising
+      diffusion models to learning these policies. It was inspired, in
+      particular, but the modeling choices in Diffuser<elib>Janner22</elib>. In
+      particular, rather than generating a single action, the denoiser in
+      diffusion policy outputs a sequence of actions with horizon $H_u$; like
+      <elib>Zhao23</elib> we found experimentally that this leads to more
+      stable roll-outs. <elib>Block23b</elib> provides some possible
+      theoretical justification for this choice. We condition the input on a
+      history of observations of length $H_y.$</p>
+
+    </subsection>
+
+    <subsection><h1>Diffusion Policy for LQG</h1>
+    
+      <p>Let me be clear, it almost certainly does <i>not</i> make sense to use
+      a diffusion policy to implement LQG control. But because we understand
+      LQG so well at this point, it can be helpful to understand what the
+      Diffusion Policy looks like in this extremely simplified case.</p>
+
+      <p>Consider the case where we have the standard linear-Gaussian dynamical
+      system: \begin{gather*} \bx[n+1] = \bA\bx[n] + \bB\bu[n] + \bw[n], \\
+      \by[n] = \bC\bx[n] + \bD\bu[n] + \bv[n], \\ \bw[n] \sim \mathcal{N}({\bf
+      0}, {\bf \Sigma}_w), \quad \bv[n] \sim \mathcal{N}({\bf 0}, {\bf
+      \Sigma}_v). \end{gather*} Imagine that we create a dataset by rolling out
+      trajectory demonstrations using the optimal LQG policy. The question is:
+      what (exactly) does the diffusion policy learn?</p>
+    
+      <p>Let's start with the $\mathcal{H}_2$ problem (e.g. <a
+      href="policy_search.html#lqr">LQR with Gaussian noise</a>), where the
+      observation and prediction horizons are limited to a single step, $H_y =
+      H_u = 1$, and the denoiser is conditioned directly on state observations.
+      We will generate roll-outs using the optimal policy, $\bu = - \bK^*\bx$,
+      given a Gaussian distribution of intial conditions and Gaussian process
+      noise. In this case, the training loss function reduces to $$\ell(\theta)
+      = \mathbb{E}_{\bx, {\bf \epsilon}, \sigma} || {\bf f}_\theta(-\bK\bx +
+      \sigma {\bf \epsilon}, \sigma, \bx) - {\bf \epsilon} ||^2,$$ where the
+      expectation in $\bx$ is over the <a
+      href="policy_search.html#lqr">stationary distribution of the optimal
+      policy</a>. In this case, we don't need a neural network; take $f_\theta$
+      to be a simple function. In particular the optimal denoiser is given by
+      $${\bf f}_\theta(\bu, \sigma, \bx) = \frac{1}{\sigma}\left[\bu +
+      \bK\bx\right].$$ At evaluation time, the sampling iterations, $$\bu_{k-1}
+      = \bu_k + \frac{\sigma_{k-1} - \sigma_k}{\sigma_k}\left[\bu_k +
+      \bK\bx\right],$$ will converge on $\bu_0 = -\bK\bx.$ (Clearly $\bu_k =
+      -\bK\bx$ is a fixed point of the iteration, and the $\frac{\sigma_{k-1} -
+      \sigma_k}{\sigma_k}$ term is like the step-size of gradient descent.)</p>
+
+      <p>Returning to LQG, the diffusion policy architecture (with $H_u=1$)
+      will be learning a denoiser conditioned on a finite history of actions
+      and observations, \begin{gather*}f_\theta(\bu[n], \sigma,
+      \bar{\by}_{H_y}, \bar{\bu}_{H_y}), \\ \bar{\by}_{H_y} =
+      \left[\by[n-1],... ,\by[n-H_y]\right], \\ \bar{\bu}_{H_y} =
+      \left[\bu[n-1],... ,\bu[n-H_y]\right].\end{gather*} We know that for <a
+      href="output_feedback.html#lqg">LQG</a>, the optimal actor that we will
+      use for generating training data takes the form of a Kalman filter
+      followed by LQR feedback on the estimated state. We can <a
+      href="output_feedback.html#disturbance_based">"unroll" the (truncated)
+      Kalman filter</a> into a linear function of the history of actions and
+      observations; for observable and stabilizable linear systems we know that
+      this truncation error will converge to zero as we increase $H_y$. Let's
+      call this unrolled policy $\bu[n] = \hat{\pi}_{LQG}(\bar{\by}_{H_y},
+      \bar{\bu}_{H_y}).$ With some care, it can be shown that the optimal
+      denoiser is given by $${\bf f}_\theta(\bu, \sigma, \bar{\by}_{H_y},
+      \bar{\bu}_{H_y}) = \frac{1}{\sigma}\left[\bu +
+      \hat{\pi}_{LQG}(\bar{\by}_{H_y}, \bar{\bu}_{H_y})\right],$$ which will
+      converge onto the truncated Kalman filter.</p>
+
+      <todo>Notebook example</todo>
+
+      <p>Predicting actions multiple steps into the future is a fundamentally
+      important aspect of the Diffusion Policy architecture
+      <elib>Block23b</elib>. For LQG, ...</p>  
+
+      <todo>Reduced-order LQG</todo>
+
+    </subsection>
+  
+  </section>
+
+</chapter>
+<!-- EVERYTHING BELOW THIS LINE IS OVERWRITTEN BY THE INSTALL SCRIPT -->
+
+<div id="references"><section><h1>References</h1>
+<ol>
+
+<li id=Chi23>
+<span class="author">Cheng Chi and Siyuan Feng and Yilun Du and Zhenjia Xu and Eric Cousineau and Benjamin Burchfiel and Shuran Song</span>, 
+<span class="title">"Diffusion Policy: Visuomotor Policy Learning via Action Diffusion"</span>, 
+<span class="publisher">Proceedings of Robotics: Science and Systems</span> , <span class="year">2023</span>.
+
+</li><br>
+<li id=Song20>
+<span class="author">Jiaming Song and Chenlin Meng and Stefano Ermon</span>, 
+<span class="title">"Denoising Diffusion Implicit Models"</span>, 
+<span class="publisher">International Conference on Learning Representations</span> , <span class="year">2020</span>.
+
+</li><br>
+<li id=Permenter23>
+<span class="author">Frank Permenter and Chenyang Yuan</span>, 
+<span class="title">"Interpreting and Improving Diffusion Models Using the Euclidean Distance Function"</span>, 
+<span class="publisher">arXiv preprint arXiv:2306.04848</span>, <span class="year">2023</span>.
+
+</li><br>
+<li id=Sohl-Dickstein15>
+<span class="author">Jascha Sohl-Dickstein and Eric Weiss and Niru Maheswaranathan and Surya Ganguli</span>, 
+<span class="title">"Deep unsupervised learning using nonequilibrium thermodynamics"</span>, 
+<span class="publisher">International conference on machine learning</span> , pp. 2256--2265, <span class="year">2015</span>.
+
+</li><br>
+<li id=Hyvarinen05>
+<span class="author">Aapo Hyvarinen</span>, 
+<span class="title">"Estimation of {Non}-{Normalized} {Statistical} {Models} by {Score} {Matching}"</span>, 
+<span class="publisher">Journal of Machine Learning Research</span>, vol. 6, pp. 695–708, <span class="year">2005</span>.
+
+</li><br>
+<li id=Vincent11>
+<span class="author">Pascal Vincent</span>, 
+<span class="title">"A connection between score matching and denoising autoencoders"</span>, 
+<span class="publisher">Neural computation</span>, vol. 23, no. 7, pp. 1661--1674, <span class="year">2011</span>.
+
+</li><br>
+<li id=Song19>
+<span class="author">Yang Song and Stefano Ermon</span>, 
+<span class="title">"Generative Modeling by Estimating Gradients of the Data Distribution"</span>, 
+<span class="publisher">Advances in Neural Information Processing Systems</span> , vol. 32, <span class="year">2019</span>.
+
+</li><br>
+<li id=Ho20>
+<span class="author">Jonathan Ho and Ajay Jain and Pieter Abbeel</span>, 
+<span class="title">"Denoising diffusion probabilistic models"</span>, 
+<span class="publisher">Advances in neural information processing systems</span>, vol. 33, pp. 6840--6851, <span class="year">2020</span>.
+
+</li><br>
+<li id=Janner22>
+<span class="author">Michael Janner and Yilun Du and Joshua Tenenbaum and Sergey Levine</span>, 
+<span class="title">"Planning with Diffusion for Flexible Behavior Synthesis"</span>, 
+<span class="publisher">International Conference on Machine Learning</span> , pp. 9902--9915, <span class="year">2022</span>.
+
+</li><br>
+<li id=Zhao23>
+<span class="author">Tony Z Zhao and Vikash Kumar and Sergey Levine and Chelsea Finn</span>, 
+<span class="title">"Learning Fine-Grained Bimanual Manipulation with Low-Cost Hardware"</span>, 
+<span class="publisher">arXiv preprint arXiv:2304.13705</span>, <span class="year">2023</span>.
+
+</li><br>
+<li id=Block23b>
+<span class="author">Adam Block and Ali Jadbabaie and Daniel Pfrommer and Max Simchowitz and Russ Tedrake</span>, 
+<span class="title">"Provable Guarantees for Generative Behavior Cloning: Bridging Low-Level Stability and High-Level Behavior"</span>, 
+<span class="publisher">Thirty-seventh Conference on Neural Information Processing Systems</span> , <span class="year">2023</span>.
+
+</li><br>
+</ol>
+</section><p/>
+</div>
+
+<table style="width:100%;"><tr style="width:100%">
+  <td style="width:33%;text-align:left;"><a class="previous_chapter"></a></td>
+  <td style="width:33%;text-align:center;"><a href=index.html>Table of contents</a></td>
+  <td style="width:33%;text-align:right;"><a class="next_chapter"></a></td>
+</tr></table>
+
+<div id="footer">
+  <hr>
+  <table style="width:100%;">
+    <tr><td><a href="https://accessibility.mit.edu/">Accessibility</a></td><td style="text-align:right">&copy; Russ
+      Tedrake, 2024</td></tr>
+  </table>
+</div>
+
+
+</body>
+</html>
